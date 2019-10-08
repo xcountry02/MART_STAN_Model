@@ -1,0 +1,305 @@
+---
+title: AD CTS 4.0
+date: "`r format(Sys.time(), '%B %e, %Y')`"
+output: 
+bookdown::pdf_book:
+fig_caption: yes
+keep_tex: no
+number_sections: yes
+toc: yes
+toc_depth: 3
+fontsize: 10pt
+geometry: margin=1in
+header-includes: \setlength\parindent{0pt}
+graphics: yes
+
+citecolor: blue
+linkcolor: blue
+urlcolor: blue
+#bibliography: ../../../bibliography/alpha.bib
+#csl: ../../../bibliography/npg.csl
+---
+
+\newpage
+```{r clean environment, echo=FALSE}
+rm(list=ls())
+```
+
+```{r path generate, echo=FALSE}
+modelName <- "MART stan model"
+
+## Relative paths assuming the working directory is the script directory
+## containing this script
+scriptDir <- getwd()
+projectDir <- dirname(scriptDir)
+figDir <- file.path(projectDir, "deliv", "fig")
+tabDir <- file.path(projectDir, "deliv", "tab", modelName)
+dataDir <- file.path(projectDir, "data")
+modelDir <- file.path(projectDir)
+outDir <- file.path(projectDir, "deliv")
+
+```
+
+```{r load libraries, echo=FALSE}
+#source(file.path(scriptDir, "pkgSetup.R"))
+
+library(rstan)
+library(bayesplot)
+library(tidyverse)
+library(parallel)
+library(lattice)
+library(ggplot2)
+library(xlsx)
+library(dplyr)
+library(tidyr)
+```
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(include = T, message=T, warning=T, 
+                      echo = T,
+                      fig.height=4, fig.width=8, fig.path = "./fig/1_")
+```
+
+```{r significant digits}
+options(scipen = 999, digits = 10)
+```
+
+```{r generate}
+Sys.setenv(PATH = paste("C:/Rtools/bin", Sys.getenv("PATH"), sep=";"))
+Sys.setenv(BINPREF = "C:/Rtools/mingw_$(WIN)/bin/")
+```
+
+
+```{r load curated data}
+load("../data/dat_list.Rdata")
+```
+
+```{r Stan criteria}
+set.seed(1234)
+## create initial estimates
+
+#Covariates and placebo
+init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01), theta_SEX = rnorm(1,.953,0.01), theta_AGE = rnorm(1,-.024,0.01), theta_APOE4_b = rnorm(1,.037,0.01), theta_APOE4_r = rnorm(1,.195,0.01), tau = .01, beta = .01,omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5),omega_sb = rlnorm(1,log(.099)-.5), omega_sr = rlnorm(1,log(.026)-.5), eta_pb = rep(0,dat_list[[2]]),eta_pr = rep(0,dat_list[[2]]), eta_sb = rep(0,dat_list[[3]]),eta_sr = rep(0,dat_list[[3]]), kel = rnorm(1,.02,0.01), keq = rnorm(1,.08,0.01), beta_bateman = rnorm(1,0.1,0.001))
+
+parametersToPlot <- c("theta_S0","theta_r","theta_SEX","theta_AGE","theta_APOE4_b","theta_APOE4_r","omega_pb","omega_pr", "omega_sb","omega_sr","tau","beta","kel","keq","beta_bateman")
+
+# init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01), theta_SEX = rnorm(1,.953,0.01), theta_AGE = rnorm(1,-.024,0.01), theta_APOE4_b = rnorm(1,.037,0.01), theta_APOE4_r = rnorm(1,.195,0.01), theta_COMED = rnorm(1,-.302,0.01),  tau = .01, beta = .01,omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5),omega_sb = rlnorm(1,log(.099)-.5), omega_sr = rlnorm(1,log(.026)-.5), eta_pb = rep(0,dat_list[[2]]),eta_pr = rep(0,dat_list[[2]]), eta_sb = rep(0,dat_list[[3]]),eta_sr = rep(0,dat_list[[3]]), kel = rnorm(1,.02,0.01), keq = rnorm(1,.08,0.01), beta_bateman = rnorm(1,0.1,0.001))
+
+# parametersToPlot <- c("theta_S0","theta_r","theta_SEX","theta_AGE","theta_APOE4_b","theta_APOE4_r","theta_COMED","omega_pb","omega_pr", "omega_sb","omega_sr","tau","beta","kel","keq","beta_bateman")
+
+#1 Covariate and placebo
+#init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01), theta_SEX = rnorm(1,.953,0.01),  tau = .01, beta = .01,omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5),omega_sb = rlnorm(1,log(.099)-.5), omega_sr = rlnorm(1,log(.026)-.5), eta_pb = rep(0,P),eta_pr = rep(0,P), eta_sb = rep(0,M),eta_sr = rep(0,M), kel = rnorm(1,.02,0.01), keq = rnorm(1,.08,0.01), beta_bateman = rnorm(1,0.1,0.001))
+
+#parametersToPlot <- c("theta_S0","theta_r","theta_COMED","omega_pb","omega_pr","omega_sb","omega_sr","tau","beta","kel","keq","beta_bateman")
+
+#Covariates no placebo
+#init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01), theta_SEX = rnorm(1,.953,0.01), theta_AGE = rnorm(1,-.024,0.01), theta_APOE4_b = rnorm(1,.037,0.01), theta_APOE4_r = rnorm(1,.195,0.01), theta_COMED = rnorm(1,1,0.01),  tau = .1, beta = .1,omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5),omega_sb = rlnorm(1,log(.099)-.5), omega_sr = rlnorm(1,log(.026)-.5), eta_pb = rep(0,P),eta_pr = rep(0,P), eta_sb = rep(0,M),eta_sr = rep(0,M))
+
+#parametersToPlot <- c("theta_S0","theta_r", "theta_SEX","theta_AGE","theta_APOE4_b","theta_APOE4_r","theta_COMED", "omega_pb","omega_pr", "omega_sb","omega_sr","tau","beta")
+
+
+#Covariates, no placebo, no random effects for study
+#init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01), theta_SEX = rnorm(1,.953,0.01), theta_AGE = rnorm(1,-.024,0.01), theta_APOE4_b = rnorm(1,.037,0.01), theta_APOE4_r = rnorm(1,.195,0.01), theta_COMED = rnorm(1,1,0.01),  tau = .1, beta = .1,omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5), eta_pb = rep(0,P),eta_pr = rep(0,P))
+
+#parametersToPlot <- c("theta_S0","theta_r", "theta_SEX","theta_AGE","theta_APOE4_b","theta_APOE4_r","theta_COMED", "omega_pb","omega_pr","tau","beta")
+
+#No covariates w/ placebo
+#init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01), tau = .01, beta = .01, omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5),omega_sb = rlnorm(1,log(.099)-.5), omega_sr = rlnorm(1,log(.026)-.5), eta_pb = rep(0,P),eta_pr = rep(0,P), eta_sb = rep(0,M),eta_sr = rep(0,M),kel = -1.83, keq = 1.88, beta_bateman = -3.506)
+
+#parametersToPlot <- c("theta_S0","theta_r", "omega_pb","omega_pr", "omega_sb","omega_sr","tau","beta","kel","keq","beta_bateman")
+#parametersToEstimate <- c("theta_S0","theta_r", "omega_pb","omega_pr", "omega_sb","omega_sr","eta_pb","eta_pr","eta_sb","eta_sr", "tau","beta","kel","keq","beta_bateman")
+
+#No covariates w/ no placebo
+#init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01),  tau = .1, beta = .1, omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5),omega_sb = rlnorm(1,log(.099)-.5), omega_sr = rlnorm(1,log(.026)-.5), eta_pb = rep(0,P),eta_pr = rep(0,P), eta_sb = rep(0,M),eta_sr = rep(0,M))
+
+#parametersToPlot <- c("theta_S0","theta_r", "omega_pb","omega_pr", "omega_sb","omega_sr","tau","beta")
+
+#No covariates w/ no placebo, no random effects for study
+#init =  function() list(theta_S0 = rnorm(1,.21,.01), theta_r = rnorm(1,.147,0.01),  tau = .01, beta = .01, omega_pb = rlnorm(1,log(.405)-.5,1), omega_pr = rlnorm(1,log(.206)-.5), eta_pb = rep(0,P),eta_pr = rep(0,P))
+
+#parametersToPlot <- c("theta_S0","theta_r", "omega_pb","omega_pr","tau","beta")
+
+parameters <- c(parametersToPlot)
+
+```
+
+# Run Stan
+
+```{r Stan}
+
+nChains <- 1
+nPost <-2000 ## Number of post-burn-in samples per chain after thinning
+nBurn <-2000 ## Number of burn-in samples per chain after thinning
+nThin <- 1
+
+nIter <- (nPost + nBurn) * nThin
+nBurnin <- nBurn * nThin
+
+dir.create(outDir,"report")
+
+fit <- stan(model_name ="MART stan model", file = file.path(projectDir, "script", paste(modelName, ".stan", sep = "")),
+            data = dat_list,
+            pars = parameters,
+            iter = nIter,
+            warmup = nBurnin,
+            thin = nThin, 
+            init = init,
+            chains = nChains,
+            verbose = FALSE,
+            cores = nChains,
+            control=list(adapt_delta=0.99, stepsize = .01, max_treedepth =50)
+)
+
+# save(fit, file = file.path(outDir,"report", paste("test.Rsave", sep = "")))
+save(fit, file = file.path(outDir,"report", paste("S4_cov_final.Rsave", sep = "")))
+
+```
+
+```{r Output}
+load(file = file.path(outDir,"report", paste("S4_cov_final.Rsave", sep = "")), envir = parent.frame(), verbose = FALSE)
+list_of_draws <- rstan::extract(fit, parametersToPlot, permuted = TRUE, inc_warmup = FALSE,include = TRUE)
+save(list_of_draws,file = "bayesian_draws_ADCTS_params.Rdata")
+print(names(list_of_draws))
+print(get_elapsed_time(fit))
+code <- get_stancode(fit)
+cat(code)  #Prints out code in readible form
+fit_summary <- summary(fit)
+print(names(fit_summary))
+print(fit_summary$summary)
+# 
+
+#Identify divergent transitions (if any)
+sampler_params <- get_sampler_params(fit, inc_warmup = FALSE)
+sampler_params_chain1 <- sampler_params[[1]]
+colnames(sampler_params_chain1)
+max_div_trans_chain <- sapply(sampler_params, function(x) mean(x[, "divergent__"]))
+max_div_trans_chain
+
+sd_summary <- summary(fit,parametersToPlot)$summary
+print(sd_summary,digits = 3)
+sampler_params <- get_sampler_params(fit, inc_warmup = TRUE)
+summary(do.call(rbind, sampler_params), digits = 2)
+lapply(sampler_params, summary, digits = 2)
+ 
+
+traceplot(fit, parametersToPlot, include = TRUE, unconstrain = FALSE,
+          inc_warmup = TRUE, window = NULL, nrow = NULL, ncol = NULL)
+pairs(fit, pars = parametersToPlot )
+plot(fit,pars = parametersToPlot,show_density = TRUE, ci_level = 0.5, fill_color = "yellow")
+#
+# ## From Bill G's file: ADD in later on#############################################################################################
+# # posterior distributions of parameters
+#
+dir.create(figDir)
+dir.create(tabDir)
+
+# # open graphics device
+pdf(file = file.path(figDir, paste(modelName,"Plots%03d.pdf", sep = "")),
+    width = 6, height = 6, onefile = F)
+
+options(bayesplot.base_size = 12,
+        bayesplot.base_family = "sans")
+color_scheme_set(scheme = "brightblue")
+myTheme <- theme(text = element_text(size = 12), axis.text = element_text(size = 12))
+
+rhats <- rhat(fit, pars = parametersToPlot)
+mcmc_rhat(rhats) + yaxis_text() + myTheme
+
+ratios1 <- neff_ratio(fit, pars = parametersToPlot)
+mcmc_neff(ratios1) + yaxis_text() + myTheme
+
+posterior <- as.array(fit)
+mcmc_acf(posterior, pars = parametersToPlot) + myTheme
+
+#mcmcHistory is a user defined function with code in the 'Stan_tools_(code from github).R' file
+#mcmcHistory(fit, pars = parametersToPlot, nParPerPage = 4, myTheme = myTheme)
+
+mcmc_dens_overlay(posterior, parametersToPlot)
+mcmc_dens(posterior, parametersToPlot) + myTheme
+
+ptable <- monitor(as.array(fit, pars = parametersToPlot), warmup = 0, print = FALSE)
+write.csv(ptable, file = file.path(tabDir, paste(modelName, "ParameterTable.csv", sep = "")))
+
+
+## posterior predictive distributions
+
+ # pred <- as.data.frame(fit, pars = "ypred") %>%
+ #     gather(factor_key = TRUE) %>%
+ #         group_by(key) %>%
+ #             summarize(lb = quantile(value, probs = 0.05),
+ #                       median = quantile(value, probs = 0.5),
+ #                       ub = quantile(value, probs = 0.95)) %>%
+ #                          bind_cols(data)
+ # 
+ # p1 <- ggplot(pred, aes(x = x, y = y))
+ # p1 <- p1 + geom_point() +
+ #     labs(x = "x", y = "y") +
+ #         theme(text = element_text(size = 12), axis.text = element_text(size = 12),
+ #               legend.position = "none", strip.text = element_text(size = 8))
+ # p1 + geom_line(aes(x = x, y = median)) +
+ #     geom_ribbon(aes(ymin = lb, ymax = ub), alpha = 0.25)
+
+ dev.off()
+#################################################################################################################################
+```
+
+```{r Quick simulation and plotting}
+# Generate study and patient random effects
+sb_re <- rnorm(M,0,mean(list_of_draws$omega_sb))
+sr_re <- rnorm(M,0,mean(list_of_draws$omega_sr))
+pb_re <- rnorm(P,0,mean(list_of_draws$omega_pb))
+pr_re <- rnorm(P,0,mean(list_of_draws$omega_pr))
+
+#Generate covariate relationships
+X_baseline <- X[baseline_inds,]
+ADAScogij <- 70*mean(list_of_draws$theta_S0)* (1+mean(list_of_draws$theta_SEX)*(X_baseline[,6]-1))*(1+mean(list_of_draws$theta_APOE4_b)*(X_baseline[,7]-.72))*exp(pb_re+sb_re[IDs_P])
+ADAScogij[which(ADAScogij>70)] <- 70
+
+rij <- mean(list_of_draws$theta_r)*(1+mean(list_of_draws$theta_AGE)*(X_baseline[,5]-75))*(1+mean(list_of_draws$theta_APOE4_r)*
+(X_baseline[,7]-.72))*(1+mean(list_of_draws$theta_COMED)*(1-X_baseline[,8])) + sr_re[IDs_P] + pr_re
+
+#Simulate ADAScog scores using logistic regression with beta distributed residuals
+subjId <- 1:P
+times <- seq(0, 204, 12)
+frame <- expand.grid(times, subjId)
+names(frame) <- c("Week", "subjId")
+frame$ADAS <- rep(0,length(frame$Week))
+frame$ADAS[which(frame$Week == 0)] <- ADAScogij
+
+for(i in 2:length(times)){
+  
+  ADAS_next = 70*ADAScogij/(ADAScogij^mean(list_of_draws$beta) +(70^mean(list_of_draws$beta)-ADAScogij^mean(list_of_draws$beta))*exp(-mean(list_of_draws$beta)*rij*times[i]/52))^(1/mean(list_of_draws$beta))
+  
+frame$ADAS[which(frame$Week == times[i])] <- ADAS_next
+}
+frame$ADAScog11 <- with(frame, 70*rbeta(length(ADAS), ADAS/70 * mean(list_of_draws$tau), (1 - ADAS/70)*  mean(list_of_draws$tau)))
+
+#Compute mean predicted trajectory
+ADAS_mean <- vector()
+for(i in 1:length(times)){
+  ADAS_mean[i] <- mean(frame$ADAScog11[which(frame$Week == times[i])])
+  
+  
+  
+}
+```
+
+
+
+```{r Plotting}
+plot.new()
+plot(X[,3], X[,4], xlim=c(0,200), ylim=c(0,70), 
+  	xlab="Week", ylab="ADAScog11", pch=1)
+lines(times,ADAS_mean,lwd = 2,col = 'blue')
+
+
+```
+# Session Information
+```{r date and time}
+Sys.time()
+```
+
+```{r working dir and packages info}
+getwd()
+sessionInfo()
+```
